@@ -10,9 +10,13 @@ from imdb import Cinemagoer, IMDbError
 import sqlite3
 import sys
 
-
+# Connect to SQL3 Database
 conn = sqlite3.connect('movies.db')
+# Declare cursor
 c = conn.cursor()
+
+# Global Variables
+NEW_LINE = "\n+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n"
 
 
 def create_table():
@@ -37,31 +41,67 @@ def add_movie(title):
         except IMDbError as e:
             print(e)
     # Get the first result
-    # TODO: Add a selection menu for choosing which option is correct
-    movie = ia.get_movie(results[0].movieID)
+    movie_index = movie_selection_menu(results, ia)
+    if movie_index == 10:
+        return
+    else:
+        movie = ia.get_movie(results[movie_index].movieID)
 
     # Get movie data
+    # TODO: For some reason these if statements to check if the keys exist aren't working
+    # TODO: Figure out a better way to check if keys exist
     m_title = movie['title']
     m_year = movie['year']
-    m_runtime = int(movie['runtime'][0])
-    m_genres = ", ".join(movie['genres'])
-    directors = []
-    for director in movie['directors']:
-        directors.append(director['name'])
-    m_directors = ", ".join(directors)
-    m_plot = movie['plot outline']
+    if 'runtime' in movie:
+        m_runtime = movie['runtime'][0]
+    else:
+        m_runtime = None
+    if 'genres' in movie:
+        m_genres = ", ".join(movie['genres'])
+    else:
+        m_genres = None
+    if 'directors' in movie:
+        directors = []
+        for director in movie['directors']:
+            directors.append(director['name'])
+        m_directors = ", ".join(directors)
+    else:
+        m_directors = None
+    if 'plot outline' in movie:
+        m_plot = movie['plot outline']
+    else:
+        m_plot = None
     m_poster = movie['cover']
     # The below line is necessary to get a full size cover instead of a thumbnail
     m_poster = m_poster[:m_poster.rindex('@') + 1]
-    m_imdb_rating = movie['rating']
-    m_imdb_votes = movie['votes']
+    if 'rating' in movie:
+        m_imdb_rating = movie['rating']
+    else:
+        m_imdb_rating = None
+    if 'votes' in movie:
+        m_imdb_votes = movie['votes']
+    else:
+        m_imdb_votes = None
 
-    # Add movie to database
-    c.execute("INSERT INTO movies VALUES (?,?,?,?,?,?,?,?,?,?)",
+    # Check to see if movie is already in database
+    # Get movie using title
+    # TODO: Check if this actually works
+    c.execute('''SELECT * FROM movies WHERE title=? AND year=? AND runtime=? AND genres=?
+              AND director=? AND plot=? AND poster=? AND imdb_rating=? AND imdb_votes=?''',
               (m_title, m_year, m_runtime, m_genres, m_directors, m_plot, m_poster,
-               m_imdb_rating, m_imdb_votes, False))
+               m_imdb_rating, m_imdb_votes,))
+    movie_search = c.fetchone()
+    # TODO: Fix this section, currently adding duplicates
+    if movie_search is None:
+        # Add movie to database
+        c.execute("INSERT INTO movies VALUES (?,?,?,?,?,?,?,?,?,?)",
+                  (m_title, m_year, m_runtime, m_genres, m_directors, m_plot, m_poster,
+                   m_imdb_rating, m_imdb_votes, False))
 
-    conn.commit()
+        conn.commit()
+    else:
+        print("Error! That movie is already in the library!")
+        return
 
 
 def remove_movie(title):
@@ -98,16 +138,64 @@ def mark_watched(title, unwatch=None):
 
 
 def print_info(movie):
+    # This function only works for movies already in the database
     print(f"Title: {movie[0]}")
     print(f"Year Released: {movie[1]}")
-    print(f"Runtime: {movie[2]} minutes")
-    print(f"Genres: {movie[3]}")
-    print(f"Director(s): {movie[4]}")
-    print(f"Synopsis: {movie[5]}")
+    if movie[2] is None:
+        print("Runtime unavailable")
+    else:
+        print(f"Runtime: {movie[2]} minutes")
+    if movie[3] is None:
+        print("Genres unavailable")
+    else:
+        print(f"Genres: {movie[3]}")
+    if movie[4] is None:
+        print("Directors unavailable")
+    else:
+        print(f"Director(s): {movie[4]}")
+    if movie[5] is None:
+        print("Synopsis unavailable")
+    else:
+        print(f"Synopsis: {movie[5]}")
     print(f"Poster Image: {movie[6]}")
-    print(f"Rating: {movie[7]}/10")
+    if movie[7] is None:
+        print("Rating unavailable")
+    else:
+        print(f"Rating: {movie[7]}/10")
     # movie[8] is the number of IMDb Votes
     print("Watched: " + str(movie[9] == 1))
+
+
+def print_imdb_info(movie):
+    # This function works for movies retrieved directly from IMDb
+    print(f"Title: {movie['title']}")
+    print(f"Year Released: {movie['year']}")
+    if 'runtime' in movie:
+        print(f"Runtime: {movie['runtime'][0]} minutes")
+    else:
+        print("Runtime unavailable")
+    genres = ", ".join(movie['genres'])
+    print(f"Genres: {genres}")
+    if 'directors' in movie:
+        directors = []
+        for director in movie['directors']:
+            directors.append(director['name'])
+        m_directors = ", ".join(directors)
+        print(f"Director(s): {m_directors}")
+    else:
+        print("Directors unavailable")
+    if 'plot outline' in movie:
+        print(f"Synopsis: {movie['plot outline']}")
+    else:
+        print("Synopsis unavailable")
+    poster = movie['cover']
+    poster = poster[:poster.rindex('@') + 1]
+    print(f"Poster Image: {poster}")
+    if 'rating' in movie:
+        print(f"Rating: {movie['rating']}/10")
+    else:
+        print("Rating unavailable")
+    # movie['rating'] is the number of IMDb Votes
 
 
 def view_info(title):
@@ -171,6 +259,7 @@ def print_helper(results):
 
 
 def menu():
+    print("Please select one of the following options:\n")
     print("1. Add movie")
     print("2. Remove movie")
     print("3. Mark as watched")
@@ -181,8 +270,6 @@ def menu():
     print("Press any other key to exit.")
 
     choice = sanitize_choice(input(">> "))
-
-    newline = "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
 
     if choice == 1:
         title = input("Title: ")
@@ -199,20 +286,21 @@ def menu():
     elif choice == 5:
         view_all()
     elif choice == 6:
-        print(f"\n{newline}\n")
+        print(NEW_LINE)
         search_menu()
     elif choice == 7:
-        print(f"\n{newline}\n")
+        print(NEW_LINE)
         misc_menu()
     else:
         print("Exiting")
         conn.close()
         sys.exit(0)
 
-    print(f"\n{newline}\n")
+    print(NEW_LINE)
 
 
 def search_menu():
+    print("Please select one of the following options:\n")
     print("1. Search by Title")
     print("2. Search by Director")
     print("3. Search by Genre")
@@ -238,28 +326,44 @@ def search_menu():
 
 
 def misc_menu():
+    print("Please select one of the following options:\n")
     print("1. Delete database")
     print("2. Mark movie as unwatched")
-    print("3. ")
-    print("4. ")
     print("Press any other key to go back to menu")
 
     choice = sanitize_choice(input(">> "))
 
-    newline = "+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+"
-
     if choice == 1:
-        print(f"\n{newline}\n")
+        print(NEW_LINE)
         confirm_choice("delete")
     elif choice == 2:
         title = input("Title: ")
         mark_watched(title, True)
-    elif choice == 3:
-        pass
-    elif choice == 4:
-        pass
     else:
         return
+
+
+def movie_selection_menu(results, ia) -> int:
+    movie_list = []
+    print("Searching...")
+    for i in range(10):
+        movie = ia.get_movie(results[i].movieID)
+        movie_list.append(movie)
+    print("Please select one of the following options:\n")
+    for i, movie in enumerate(movie_list):
+        print(i + 1)
+        print_imdb_info(movie)
+        print("\n")
+        if i > 9:
+            continue
+    print("Press any other key to go cancel")
+
+    choice = sanitize_choice(input(">> "))
+
+    for i in range(1, 11):
+        if choice == i:
+            return i - 1
+    return 10
 
 
 def sanitize_choice(choice) -> int:
@@ -292,28 +396,6 @@ def confirm_choice(choice):
 
 def main():
     create_table()
-    """
-    try:
-        ia = Cinemagoer()
-        movies = ia.search_movie('matrix')
-        print(movies)
-        movie = ia.get_movie(movies[0].movieID)
-        print(movie['directors'])
-    except IMDbError as e:
-        print(e)
-    """
-
-    """
-    add_movie('The Shawshank Redemption')
-    add_movie('The Godfather')
-    add_movie('The Dark Knight')
-    add_movie('The Godfather, Part II')
-    remove_movie('The Dark Knight')
-    mark_watched('The Shawshank Redemption')
-    view_info('The Shawshank Redemption')
-    search_director('Francis Ford Coppola')
-    search_year(2008)
-    """
     while True:
         menu()
 
