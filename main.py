@@ -6,7 +6,7 @@
 #              and those that they want to watch. Users can search through their
 #              library, mark movies as watched, and view information about movies.
 
-# TODO: import get key and check if enter key is what the user inputted
+# to install Cinemagoer, run 'pip install git+https://github.com/cinemagoer/cinemagoer'
 from imdb import Cinemagoer, IMDbError
 from urllib.error import HTTPError
 import sqlite3
@@ -162,11 +162,12 @@ def mark_watched(title, unwatch=None):
         print(f"Error! Couldn't find \"{title}\". Check the title and try again.")
         return
     # Update 'watched' variable to true or false
+    # 'unwatch' is used to mark a movie as unwatched
     if unwatch is None:
-        print("Marking movie as watched. Check database for changes.")
+        print("\nMarking movie as watched. Check database for changes.")
         c.execute("UPDATE movies SET watched=1 WHERE title=?", (title,))
     else:
-        print("Marking movie as unwatched. Check database for changes.")
+        print("\nMarking movie as unwatched. Check database for changes.")
         c.execute("UPDATE movies SET watched=0 WHERE title=?", (title,))
     # Commit changes
     conn.commit()
@@ -331,6 +332,7 @@ def menu():
         mark_watched(title)
     elif choice == 4:
         title = input("Title: ")
+        print()
         view_info(title)
     elif choice == 5:
         view_all()
