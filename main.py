@@ -6,7 +6,9 @@
 #              and those that they want to watch. Users can search through their
 #              library, mark movies as watched, and view information about movies.
 
+
 from imdb import Cinemagoer, IMDbError
+from urllib.error import HTTPError
 import sqlite3
 import sys
 
@@ -17,6 +19,7 @@ c = conn.cursor()
 
 # Global Variables
 NEW_LINE = "\n+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+\n"
+DIVIDER_LINE = "------------------------------"
 
 
 def create_table():
@@ -36,10 +39,17 @@ def add_movie(title):
     # Sometimes the request returns an empty list, so keep trying until it works
     while not results:
         try:
+            # For some reason I'm getting HTTP 403/405 Errors and IO Errors as a result
+            # TODO: Fix HTTP 403/405 Error
             results = ia.search_movie(title)
         # Throw an error if applicable
         except IMDbError as e:
             print(e)
+        except IOError as i:
+            print(i)
+        except HTTPError as h:
+            print(h)
+
     # Get the first result
     movie_index = movie_selection_menu(results, ia)
     if movie_index == 10:
@@ -48,36 +58,65 @@ def add_movie(title):
         movie = ia.get_movie(results[movie_index].movieID)
 
     # Get movie data
-    # TODO: For some reason these if statements to check if the keys exist aren't working
-    # TODO: Figure out a better way to check if keys exist
+    # Because sometimes keys are named similarly, need multiple checks for validity
+    # keys also have aliases, but data is very inconsistent in that regard
     m_title = movie['title']
     m_year = movie['year']
+    # Get the movie's runtime
     if 'runtime' in movie:
         m_runtime = movie['runtime'][0]
+    elif 'runtimes' in movie:
+        m_runtime = movie['runtimes'][0]
     else:
         m_runtime = None
-    if 'genres' in movie:
+
+    # Get the movie's genres
+    if 'genre' in movie:
+        m_genres = movie['genre']
+    elif 'genres' in movie:
         m_genres = ", ".join(movie['genres'])
     else:
         m_genres = None
+
+    # Get the movie's directors
     if 'directors' in movie:
         directors = []
         for director in movie['directors']:
             directors.append(director['name'])
         m_directors = ", ".join(directors)
+    elif 'director' in movie:
+        m_directors = movie['director'][0]['name']
     else:
         m_directors = None
+
+    # Get a short plot outline of the movie
     if 'plot outline' in movie:
         m_plot = movie['plot outline']
+    elif 'plot' in movie:
+        m_plot = movie['plot'][0]
     else:
         m_plot = None
-    m_poster = movie['cover']
-    # The below line is necessary to get a full size cover instead of a thumbnail
-    m_poster = m_poster[:m_poster.rindex('@') + 1]
+
+    # Get the poster image url and process it
+    if 'cover' in movie:
+        m_poster = movie['cover']
+        # The below line is necessary to get a full size cover instead of a thumbnail
+        m_poster = m_poster[:m_poster.rindex('@') + 1]
+    elif 'cover url' in movie:
+        m_poster = movie['cover url']
+        m_poster = m_poster[:m_poster.rindex('@') + 1]
+    else:
+        m_poster = None
+
+    # Get the movie's IMDb rating
     if 'rating' in movie:
         m_imdb_rating = movie['rating']
     else:
         m_imdb_rating = None
+
+    # Get the movie's IMDb votes
+    # This may be helpful in excluding search results of extremely obscure movies
+    # Could also sort movies by votes and such
     if 'votes' in movie:
         m_imdb_votes = movie['votes']
     else:
@@ -85,22 +124,21 @@ def add_movie(title):
 
     # Check to see if movie is already in database
     # Get movie using title
-    # TODO: Check if this actually works
     c.execute('''SELECT * FROM movies WHERE title=? AND year=? AND runtime=? AND genres=?
               AND director=? AND plot=? AND poster=? AND imdb_rating=? AND imdb_votes=?''',
               (m_title, m_year, m_runtime, m_genres, m_directors, m_plot, m_poster,
                m_imdb_rating, m_imdb_votes,))
     movie_search = c.fetchone()
-    # TODO: Fix this section, currently adding duplicates
+    # Only add movie into database if no duplicates are found
     if movie_search is None:
         # Add movie to database
         c.execute("INSERT INTO movies VALUES (?,?,?,?,?,?,?,?,?,?)",
                   (m_title, m_year, m_runtime, m_genres, m_directors, m_plot, m_poster,
                    m_imdb_rating, m_imdb_votes, False))
-
+        print(f"\n\"{m_title}\" has been added to the database successfully!")
         conn.commit()
     else:
-        print("Error! That movie is already in the library!")
+        print(f"\nError! \"{m_title}\" is already in the library!\nPlease try again.")
         return
 
 
@@ -114,6 +152,7 @@ def remove_movie(title):
         return
     # Delete from database
     c.execute("DELETE FROM movies WHERE title=?", (title,))
+    print(f"\"{title}\" has been removed from the database!")
     # Commit changes
     conn.commit()
 
@@ -172,6 +211,8 @@ def print_imdb_info(movie):
     print(f"Year Released: {movie['year']}")
     if 'runtime' in movie:
         print(f"Runtime: {movie['runtime'][0]} minutes")
+    elif 'runtimes' in movie:
+        print(f"Runtime: {movie['runtimes'][0]} minutes")
     else:
         print("Runtime unavailable")
     genres = ", ".join(movie['genres'])
@@ -181,16 +222,27 @@ def print_imdb_info(movie):
         for director in movie['directors']:
             directors.append(director['name'])
         m_directors = ", ".join(directors)
-        print(f"Director(s): {m_directors}")
+        print(f"Directors: {m_directors}")
+    elif 'director' in movie:
+        print(f"Directors: {movie['director'][0]['name']}")
     else:
         print("Directors unavailable")
     if 'plot outline' in movie:
         print(f"Synopsis: {movie['plot outline']}")
+    elif 'plot' in movie:
+        print(f"Synopsis: {movie['plot'][0]}")
     else:
         print("Synopsis unavailable")
-    poster = movie['cover']
-    poster = poster[:poster.rindex('@') + 1]
-    print(f"Poster Image: {poster}")
+    if 'cover url' in movie:
+        poster = movie['cover url']
+        poster = poster[:poster.rindex('@') + 1]
+        print(f"Poster Image: {poster}")
+    elif 'cover' in movie:
+        poster = movie['cover']
+        poster = poster[:poster.rindex('@') + 1]
+        print(f"Poster Image: {poster}")
+    else:
+        print("Poster Image unavailable")
     if 'rating' in movie:
         print(f"Rating: {movie['rating']}/10")
     else:
@@ -217,6 +269,7 @@ def view_all():
               "Add a movie using the \"Add movie\" option.")
         return
     print_helper(results)
+    input("\nPress any key to continue: ")
 
 
 # Search for movies by director
@@ -253,21 +306,21 @@ def print_helper(results):
               "Add a movie using the \"Add movie\" option.")
         return
     for movie in results:
-        print("------------------------------")
+        print(DIVIDER_LINE)
         print_info(movie)
-    print("------------------------------")
+    print(DIVIDER_LINE)
 
 
 def menu():
-    print("Please select one of the following options:\n")
-    print("1. Add movie")
-    print("2. Remove movie")
-    print("3. Mark as watched")
-    print("4. View movie info")
-    print("5. View all")
-    print("6. Search")
-    print("7. Miscellaneous actions menu")
-    print("Press any other key to exit.")
+    print("Please select one of the following options:\n\n"
+          "1. Add movie\n"
+          "2. Remove movie\n"
+          "3. Mark as watched\n"
+          "4. View movie info\n"
+          "5. View all\n"
+          "6. Search menu\n"
+          "7. Additional Actions\n"
+          "Press any other key to exit.")
 
     choice = sanitize_choice(input(">> "))
 
@@ -300,11 +353,14 @@ def menu():
 
 
 def search_menu():
-    print("Please select one of the following options:\n")
-    print("1. Search by Title")
-    print("2. Search by Director")
-    print("3. Search by Genre")
-    print("4. Search by Year")
+    # TODO: ensure that only movies appear
+    # TV shows have different keys and cause issues
+    print("Please select one of the following options:\n\n"
+          "1. Search by Title\n"
+          "2. Search by Director\n"
+          "3. Search by Genre\n"
+          "4. Search by Year")
+    # TODO: Add top 100/250 option
     print("Press any other key to go back to menu")
 
     choice = sanitize_choice(input(">> "))
@@ -326,10 +382,10 @@ def search_menu():
 
 
 def misc_menu():
-    print("Please select one of the following options:\n")
-    print("1. Delete database")
-    print("2. Mark movie as unwatched")
-    print("Press any other key to go back to menu")
+    print("Please select one of the following options:\n\n"
+          "1. Delete database\n"
+          "2. Mark movie as unwatched\n"
+          "Press any other key to go back to menu")
 
     choice = sanitize_choice(input(">> "))
 
@@ -391,7 +447,7 @@ def confirm_choice(choice):
             print("Deletion aborted.")
             return
     else:
-        "Undeclared usage, please edit \"confirm_choice\" function"
+        print(f"Undeclared usage of the \"confirm_choice\" function. Please submit a bug report. Choice = {choice}")
 
 
 def main():
