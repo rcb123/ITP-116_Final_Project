@@ -6,7 +6,7 @@
 #              and those that they want to watch. Users can search through their
 #              library, mark movies as watched, and view information about movies.
 
-
+# TODO: import get key and check if enter key is what the user inputted
 from imdb import Cinemagoer, IMDbError
 from urllib.error import HTTPError
 import sqlite3
@@ -43,12 +43,8 @@ def add_movie(title):
             # TODO: Fix HTTP 403/405 Error
             results = ia.search_movie(title)
         # Throw an error if applicable
-        except IMDbError as e:
-            print(e)
-        except IOError as i:
-            print(i)
-        except HTTPError as h:
-            print(h)
+        except IMDbError or IOError or HTTPError as error:
+            print(error)
 
     # Get the first result
     movie_index = movie_selection_menu(results, ia)
@@ -345,6 +341,7 @@ def menu():
         print(NEW_LINE)
         misc_menu()
     else:
+        # TODO: Make dedicated exit key
         print("Exiting")
         conn.close()
         sys.exit(0)
@@ -423,6 +420,7 @@ def movie_selection_menu(results, ia) -> int:
 
 
 def sanitize_choice(choice) -> int:
+    # TODO: Check to make sure choice is an int
     choice.strip()
     if choice == "":
         # goes to exit call
