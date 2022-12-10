@@ -28,7 +28,7 @@ def create_table():
                  genres TEXT, director TEXT,
                  plot TEXT, poster TEXT,
                  imdb_rating TEXT, imdb_votes TEXT,
-                 watched BOOLEAN)''')
+                 watched BOOLEAN, notes TEXT)''')
 
     conn.commit()
 
@@ -37,13 +37,18 @@ def add_movie(title):
     ia = Cinemagoer()
     results = []
     # Sometimes the request returns an empty list, so keep trying until it works
+    x = 0
     while not results:
         try:
-            # For some reason I'm getting HTTP 403/405 Errors and IO Errors as a result
-            # TODO: Fix HTTP 403/405 Error
-            results = ia.search_movie(title)
+            results = ia.search_movie(title, 20)
+            x += 1
+            # Since it will keep trying until it gets a result (due to strange behavior),
+            # make a limit to how many requests it will make before it gives up
+            if x > 20:
+                print("ERROR! Search timed out. Please try again or check to see if you spelled the title correctly.")
+                return
         # Throw an error if applicable
-        except IMDbError or IOError or HTTPError as error:
+        except (IMDbError, IOError, HTTPError) as error:
             print(error)
 
     # Get the first result
@@ -128,9 +133,9 @@ def add_movie(title):
     # Only add movie into database if no duplicates are found
     if movie_search is None:
         # Add movie to database
-        c.execute("INSERT INTO movies VALUES (?,?,?,?,?,?,?,?,?,?)",
+        c.execute("INSERT INTO movies VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                   (m_title, m_year, m_runtime, m_genres, m_directors, m_plot, m_poster,
-                   m_imdb_rating, m_imdb_votes, False))
+                   m_imdb_rating, m_imdb_votes, False, None))
         print(f"\n\"{m_title}\" has been added to the database successfully!")
         conn.commit()
     else:
@@ -173,6 +178,25 @@ def mark_watched(title, unwatch=None):
     conn.commit()
 
 
+# Adds a note to a movie
+def add_note(title):
+    # Get movie using title
+    c.execute("SELECT * FROM movies WHERE title=?", (title,))
+    movie = c.fetchone()
+    # Check if movie was found
+    if movie is None:
+        print(f"Error! Couldn't find \"{title}\". Check the title and try again.")
+        return
+    note = input("Please enter the note you would like to leave for this movie:\n")
+    if note is None:
+        print("Nothing was entered for the note! The database will not be changed.")
+        return
+    print(f"Updating the note for \"{title}\". Check database for changes.")
+    c.execute("UPDATE movies SET notes=? WHERE title=?", (note, title))
+    # Commit changes
+    conn.commit()
+
+
 def print_info(movie):
     # This function only works for movies already in the database
     print(f"Title: {movie[0]}")
@@ -198,14 +222,19 @@ def print_info(movie):
         print("Rating unavailable")
     else:
         print(f"Rating: {movie[7]}/10")
-    # movie[8] is the number of IMDb Votes
+    # movie[8] is the number of IMDb Votes, unused
     print("Watched: " + str(movie[9] == 1))
+    if movie[10] is not None:
+        print(f"User Notes:\n{movie[10]}")
 
 
 def print_imdb_info(movie):
     # This function works for movies retrieved directly from IMDb
     print(f"Title: {movie['title']}")
-    print(f"Year Released: {movie['year']}")
+    if 'year' in movie:
+        print(f"Year Released: {movie['year']}")
+    else:
+        print("Year unavailable")
     if 'runtime' in movie:
         print(f"Runtime: {movie['runtime'][0]} minutes")
     elif 'runtimes' in movie:
@@ -232,11 +261,17 @@ def print_imdb_info(movie):
         print("Synopsis unavailable")
     if 'cover url' in movie:
         poster = movie['cover url']
-        poster = poster[:poster.rindex('@') + 1]
+        try:
+            poster = poster[:poster.rindex('@') + 1]
+        except:
+            pass
         print(f"Poster Image: {poster}")
     elif 'cover' in movie:
         poster = movie['cover']
-        poster = poster[:poster.rindex('@') + 1]
+        try:
+            poster = poster[:poster.rindex('@') + 1]
+        except:
+            pass
         print(f"Poster Image: {poster}")
     else:
         print("Poster Image unavailable")
@@ -258,6 +293,7 @@ def view_info(title):
     print_info(movie)
 
 
+# View all movies in the library, tell user if library is empty
 def view_all():
     c.execute("SELECT * FROM movies")
     results = c.fetchall()
@@ -269,23 +305,23 @@ def view_all():
     input("\nPress any key to continue: ")
 
 
-# Search for movies by director
+# Search for movies by title
 def search_title(title):
-    c.execute("SELECT * FROM movies WHERE title=?", (title,))
+    c.execute("SELECT * FROM movies WHERE title LIKE ?", ('%'+title+'%',))
     results = c.fetchall()
     print_helper(results)
 
 
 # Search for movies by director
 def search_director(director):
-    c.execute("SELECT * FROM movies WHERE director=?", (director,))
+    c.execute("SELECT * FROM movies WHERE director LIKE ?", ('%'+director+'%',))
     results = c.fetchall()
     print_helper(results)
 
 
 # Search for movies by genre
 def search_genre(genre):
-    c.execute("SELECT * FROM movies WHERE genre=?", (genre,))
+    c.execute("SELECT * FROM movies WHERE genres LIKE ?", ('%'+genre+'%',))
     results = c.fetchall()
     print_helper(results)
 
@@ -297,6 +333,7 @@ def search_year(year):
     print_helper(results)
 
 
+# Helps format printing of results
 def print_helper(results):
     if not results:
         print("\nNo movies found. "
@@ -308,42 +345,46 @@ def print_helper(results):
     print(DIVIDER_LINE)
 
 
+# Prints menu and handles user input
 def menu():
     print("Please select one of the following options:\n\n"
           "1. Add movie\n"
           "2. Remove movie\n"
           "3. Mark as watched\n"
-          "4. View movie info\n"
-          "5. View all\n"
-          "6. Search menu\n"
-          "7. Additional Actions\n"
-          "Press any other key to exit.")
+          "4. Add note to movie\n"
+          "5. View movie info\n"
+          "6. View all\n"
+          "7. Search menu\n"
+          "8. Additional Actions\n"
+          "9. Exit")
 
     choice = sanitize_choice(input(">> "))
+    if not (choice and 0 < choice < 10):
+        print("\nERROR: Please enter a choice between 1 to 9.")
+
+    if 0 < choice < 6:
+        title = input("Title: ")
 
     if choice == 1:
-        title = input("Title: ")
         add_movie(title)
     elif choice == 2:
-        title = input("Title: ")
         remove_movie(title)
     elif choice == 3:
-        title = input("Title: ")
         mark_watched(title)
     elif choice == 4:
-        title = input("Title: ")
+        add_note(title)
+    elif choice == 5:
         print()
         view_info(title)
-    elif choice == 5:
-        view_all()
     elif choice == 6:
-        print(NEW_LINE)
-        search_menu()
+        view_all()
     elif choice == 7:
         print(NEW_LINE)
+        search_menu()
+    elif choice == 8:
+        print(NEW_LINE)
         misc_menu()
-    else:
-        # TODO: Make dedicated exit key
+    elif choice == 9:
         print("Exiting")
         conn.close()
         sys.exit(0)
@@ -351,18 +392,18 @@ def menu():
     print(NEW_LINE)
 
 
+# Sub menu for searching through database
 def search_menu():
-    # TODO: ensure that only movies appear
-    # TV shows have different keys and cause issues
     print("Please select one of the following options:\n\n"
           "1. Search by Title\n"
           "2. Search by Director\n"
           "3. Search by Genre\n"
-          "4. Search by Year")
-    # TODO: Add top 100/250 option
-    print("Press any other key to go back to menu")
+          "4. Search by Year\n"
+          "5. Go back to menu")
 
     choice = sanitize_choice(input(">> "))
+    if choice and choice < 1 or choice > 5:
+        print("\nERROR: Please enter a choice between 1 to 5.")
 
     if choice == 1:
         title = input("Title: ")
@@ -380,13 +421,16 @@ def search_menu():
         return
 
 
+# Miscellaneous options
 def misc_menu():
     print("Please select one of the following options:\n\n"
           "1. Delete database\n"
           "2. Mark movie as unwatched\n"
-          "Press any other key to go back to menu")
+          "3. Go back to menu")
 
     choice = sanitize_choice(input(">> "))
+    if choice < 1 or choice > 3:
+        print("\nERROR: Please enter a choice between 1 to 3.")
 
     if choice == 1:
         print(NEW_LINE)
@@ -398,13 +442,26 @@ def misc_menu():
         return
 
 
+# Menu to show results of movie search and let user choose an option
 def movie_selection_menu(results, ia) -> int:
     movie_list = []
     print("Searching...")
-    for i in range(10):
+    i = 0
+    while len(movie_list) < 10:
         movie = ia.get_movie(results[i].movieID)
-        movie_list.append(movie)
+        i += 1
+        if i > 20:
+            break
+        # These checks make sure the result is not a TV show
+        if 'year' not in movie:
+            continue
+        if 'kind' in movie and movie['kind'] != 'movie':
+            continue
+        else:
+            movie_list.append(movie)
     print("Please select one of the following options:\n")
+
+    # Enumerate through the results and print them out for the user
     for i, movie in enumerate(movie_list):
         print(i + 1)
         print_imdb_info(movie)
@@ -413,6 +470,7 @@ def movie_selection_menu(results, ia) -> int:
             continue
     print("Press any other key to go cancel")
 
+    # Get the user's choice
     choice = sanitize_choice(input(">> "))
 
     for i in range(1, 11):
@@ -421,16 +479,21 @@ def movie_selection_menu(results, ia) -> int:
     return 10
 
 
+# Makes sure menu choice is valid
 def sanitize_choice(choice) -> int:
-    # TODO: Check to make sure choice is an int
-    choice.strip()
-    if choice == "":
-        # goes to exit call
-        return 0
+    if choice:
+        try:
+            choice.strip()
+            choice = int(choice)
+        except ValueError:
+            print("\nERROR: Please enter a valid number.")
+            return 0
+        return choice
     else:
-        return int(choice)
+        return 0
 
 
+# Used for menu options that require user confirmation
 def confirm_choice(choice):
     if choice == "delete":
         print("Are you sure you want to delete the movie database?\n"
@@ -450,6 +513,7 @@ def confirm_choice(choice):
         print(f"Undeclared usage of the \"confirm_choice\" function. Please submit a bug report. Choice = {choice}")
 
 
+# Show menu indefinitely until user exits
 def main():
     create_table()
     while True:
@@ -459,6 +523,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    # Handle if the user decides to use CTRL+C to exit
     except KeyboardInterrupt:
         print('Interrupted')
         conn.close()
