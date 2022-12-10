@@ -4,7 +4,8 @@
 # DESCRIPTION: A movie library tracker created in Python using SQL and Cinemagoer.
 #              Uses data from IMDb to create a database of a user's watched movies
 #              and those that they want to watch. Users can search through their
-#              library, mark movies as watched, and view information about movies.
+#              library, mark movies as watched, view information about movies, and
+#              add notes to movies.
 
 # to install Cinemagoer, run 'pip install git+https://github.com/cinemagoer/cinemagoer'
 from imdb import Cinemagoer, IMDbError
@@ -23,6 +24,7 @@ DIVIDER_LINE = "------------------------------"
 
 
 def create_table():
+    # Creates a new table
     c.execute('''CREATE TABLE IF NOT EXISTS movies 
                  (title TEXT, year INT, runtime INT, 
                  genres TEXT, director TEXT,
@@ -30,6 +32,7 @@ def create_table():
                  imdb_rating TEXT, imdb_votes TEXT,
                  watched BOOLEAN, notes TEXT)''')
 
+    # Commits changes to file
     conn.commit()
 
 
@@ -40,6 +43,7 @@ def add_movie(title):
     x = 0
     while not results:
         try:
+            # Search for movie based on title, limit number of search results to 20
             results = ia.search_movie(title, 20)
             x += 1
             # Since it will keep trying until it gets a result (due to strange behavior),
@@ -51,8 +55,10 @@ def add_movie(title):
         except (IMDbError, IOError, HTTPError) as error:
             print(error)
 
-    # Get the first result
+    # Get the user's choice from the results
     movie_index = movie_selection_menu(results, ia)
+
+    # If user does not choose a movie, return
     if movie_index == 10:
         return
     else:
@@ -188,9 +194,11 @@ def add_note(title):
         print(f"Error! Couldn't find \"{title}\". Check the title and try again.")
         return
     note = input("Please enter the note you would like to leave for this movie:\n")
+    # If no note is left, do nothing
     if note is None:
         print("Nothing was entered for the note! The database will not be changed.")
         return
+    # Otherwise, update the database
     print(f"Updating the note for \"{title}\". Check database for changes.")
     c.execute("UPDATE movies SET notes=? WHERE title=?", (note, title))
     # Commit changes
@@ -201,6 +209,7 @@ def print_info(movie):
     # This function only works for movies already in the database
     print(f"Title: {movie[0]}")
     print(f"Year Released: {movie[1]}")
+    # Because sometimes movies do not have all the data, check to see which fields are actually filled
     if movie[2] is None:
         print("Runtime unavailable")
     else:
@@ -262,7 +271,10 @@ def print_imdb_info(movie):
     if 'cover url' in movie:
         poster = movie['cover url']
         try:
+            # 'rindex' is used to get the higher quality movie cover
             poster = poster[:poster.rindex('@') + 1]
+        # Only very old movies have a different url scheme and
+        # throw substring value errors, just ignore the 'rindex'
         except:
             pass
         print(f"Poster Image: {poster}")
@@ -358,10 +370,13 @@ def menu():
           "8. Additional Actions\n"
           "9. Exit")
 
+    # Get user input
     choice = sanitize_choice(input(">> "))
+    # Make sure it is within range
     if not (choice and 0 < choice < 10):
         print("\nERROR: Please enter a choice between 1 to 9.")
 
+    title = ""  # Only to supress errors
     if 0 < choice < 6:
         title = input("Title: ")
 
@@ -401,7 +416,9 @@ def search_menu():
           "4. Search by Year\n"
           "5. Go back to menu")
 
+    # Get user choice
     choice = sanitize_choice(input(">> "))
+    # Make sure it is in range
     if choice and choice < 1 or choice > 5:
         print("\nERROR: Please enter a choice between 1 to 5.")
 
@@ -428,7 +445,9 @@ def misc_menu():
           "2. Mark movie as unwatched\n"
           "3. Go back to menu")
 
+    # Get user choice
     choice = sanitize_choice(input(">> "))
+    # Make sure it is in range
     if choice < 1 or choice > 3:
         print("\nERROR: Please enter a choice between 1 to 3.")
 
@@ -483,13 +502,16 @@ def movie_selection_menu(results, ia) -> int:
 def sanitize_choice(choice) -> int:
     if choice:
         try:
+            # First strip any whitespace
             choice.strip()
+            # Then convert to int
             choice = int(choice)
         except ValueError:
             print("\nERROR: Please enter a valid number.")
             return 0
         return choice
     else:
+        # Handles None input
         return 0
 
 
